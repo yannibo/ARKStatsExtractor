@@ -2,14 +2,13 @@
 using ARKBreedingStats.Library;
 using System;
 using System.Collections.Generic;
-using System.Drawing;
 using System.Windows.Forms;
 
 namespace ARKBreedingStats
 {
     public partial class CreatureBox : UserControl
     {
-        private Creature creature;
+        private Creature _creature;
         public event Action<Creature, bool, bool> Changed;
         public event Action<Creature> GiveParents;
         private Sex sex;
@@ -18,23 +17,20 @@ namespace ARKBreedingStats
         public List<int>[] parentListSimilarity; // for all possible parents the number of equal stats (to find the parents easier)
         private bool[] colorRegionUseds;
         private CreatureCollection cc;
-        ToolTip tt = new ToolTip();
+        private readonly ToolTip tt;
 
         public CreatureBox()
         {
-            InitializeVars();
-        }
-
-        public CreatureBox(Creature creature)
-        {
-            InitializeVars();
-            SetCreature(creature);
-        }
-
-        private void InitializeVars()
-        {
             InitializeComponent();
-            creature = null;
+
+            tt = new ToolTip();
+            Disposed += (s, e) =>
+            {
+                tt.RemoveAll();
+                tt.Dispose();
+            };
+
+            _creature = null;
             parentComboBoxMother.naLabel = "- Mother n/a";
             parentComboBoxFather.naLabel = "- Father n/a";
             regionColorChooser1.RegionColorChosen += RegionColorChooser1_RegionColorChosen;
@@ -46,13 +42,12 @@ namespace ARKBreedingStats
             tt.SetToolTip(textBoxNote, "Note");
             tt.SetToolTip(labelParents, "Mother and Father (if bred and choosen)");
             tt.SetToolTip(buttonSex, "Sex");
-            tt.SetToolTip(buttonStatus, "Status: Available, Unavailable, Dead");
         }
 
         public void SetCreature(Creature creature)
         {
             Clear();
-            this.creature = creature;
+            this._creature = creature;
             regionColorChooser1.SetSpecies(creature.Species, creature.colors);
             colorRegionUseds = regionColorChooser1.ColorRegionsUseds;
 
@@ -70,8 +65,7 @@ namespace ARKBreedingStats
 
         private void buttonEdit_Click(object sender, EventArgs e)
         {
-            SuspendLayout();
-            if (creature != null)
+            if (_creature != null)
             {
                 if (panel1.Visible)
                 {
@@ -79,68 +73,73 @@ namespace ARKBreedingStats
                 }
                 else
                 {
-                    checkBoxIsBred.Checked = creature.isBred;
-                    panelParents.Visible = creature.isBred;
-                    if (creature.isBred)
+                    checkBoxIsBred.Checked = _creature.isBred;
+                    panelParents.Visible = _creature.isBred;
+                    if (_creature.isBred)
                         PopulateParentsList();
-                    textBoxName.Text = creature.name;
-                    textBoxOwner.Text = creature.owner;
-                    textBoxNote.Text = creature.note;
-                    sex = creature.sex;
+                    textBoxName.Text = _creature.name;
+                    textBoxOwner.Text = _creature.owner;
+                    textBoxNote.Text = _creature.note;
+                    sex = _creature.sex;
                     buttonSex.Text = Utils.SexSymbol(sex);
-                    creatureStatus = creature.status;
-                    buttonStatus.Text = Utils.StatusSymbol(creatureStatus);
+                    creatureStatus = _creature.Status;
+                    SetStatusButton(creatureStatus);
                     textBoxName.SelectAll();
                     textBoxName.Focus();
                     panel1.Visible = true;
                 }
             }
-            ResumeLayout();
+        }
+
+        private void SetStatusButton(CreatureStatus status)
+        {
+            buttonStatus.Text = Utils.StatusSymbol(status);
+            tt.SetToolTip(buttonStatus, $"Status: {Utils.StatusText(status)}");
         }
 
         private void PopulateParentsList()
         {
             if (parentList[0] == null || parentList[1] == null)
             {
-                GiveParents(creature);
+                GiveParents(_creature);
 
                 parentComboBoxMother.parentsSimilarity = parentListSimilarity[0];
                 parentComboBoxMother.ParentList = parentList[0];
-                parentComboBoxMother.PreselectedCreatureGuid = creature.motherGuid;
+                parentComboBoxMother.PreselectedCreatureGuid = _creature.motherGuid;
                 parentComboBoxFather.parentsSimilarity = parentListSimilarity[1];
                 parentComboBoxFather.ParentList = parentList[1];
-                parentComboBoxFather.PreselectedCreatureGuid = creature.fatherGuid;
+                parentComboBoxFather.PreselectedCreatureGuid = _creature.fatherGuid;
             }
         }
 
         public void UpdateLabel()
         {
             labelParents.Text = "";
-            if (creature != null)
+            if (_creature != null)
             {
-                groupBox1.Text = $"{creature.name} (Lvl {creature.Level}/{creature.LevelHatched + cc.maxDomLevel})";
-                if (creature.Mother != null || creature.Father != null)
+                groupBox1.Text = $"{_creature.name} (Lvl {_creature.Level}/{_creature.LevelHatched + cc.maxDomLevel})";
+                if (_creature.Mother != null || _creature.Father != null)
                 {
-                    if (creature.Mother != null)
-                        labelParents.Text = "Mo: " + creature.Mother.name;
-                    if (creature.Father != null && creature.Mother != null)
+                    if (_creature.Mother != null)
+                        labelParents.Text = "Mo: " + _creature.Mother.name;
+                    if (_creature.Father != null && _creature.Mother != null)
                         labelParents.Text += "; ";
-                    if (creature.Father != null)
-                        labelParents.Text += "Fa: " + creature.Father.name;
+                    if (_creature.Father != null)
+                        labelParents.Text += "Fa: " + _creature.Father.name;
                 }
-                else if (creature.isBred)
+                else if (_creature.isBred)
                 {
                     labelParents.Text = "bred, click 'edit' to add parents";
                 }
                 else
                 {
-                    labelParents.Text = "found wild " + creature.levelFound + (creature.tamingEff >= 0 ? ", tamed with TE: " + (creature.tamingEff * 100).ToString("N1") + "%" : ", TE unknown.");
+                    labelParents.Text = "found wild " + _creature.levelFound + (_creature.tamingEff >= 0 ? ", tamed with TE: " + (_creature.tamingEff * 100).ToString("N1") + "%" : ", TE unknown.");
                 }
-                statsDisplay1.SetCreatureValues(creature);
-                labelNotes.Text = creature.note;
-                labelSpecies.Text = creature.Species.name;
-                pictureBox1.Image = CreatureColored.getColoredCreature(creature.colors, creature.Species, colorRegionUseds);
-                tt.SetToolTip(pictureBox1, CreatureColored.RegionColorInfo(creature.Species, creature.colors)
+                statsDisplay1.SetCreatureValues(_creature);
+                labelNotes.Text = _creature.note;
+                labelSpecies.Text = _creature.Species.name;
+                pictureBox1.Image = CreatureColored.GetColoredCreature(_creature.colors, _creature.Species, colorRegionUseds, creatureSex: _creature.sex);
+                tt.SetToolTip(pictureBox1, CreatureColored.RegionColorInfo(_creature.Species, _creature.colors)
                     + "\n\nClick to copy creature infos as image to the clipboard");
                 pictureBox1.Visible = true;
             }
@@ -151,41 +150,39 @@ namespace ARKBreedingStats
             panel1.Visible = false;
             if (save)
             {
-                SuspendLayout();
-                creature.name = textBoxName.Text;
-                creature.sex = sex;
-                creature.owner = textBoxOwner.Text;
+                _creature.name = textBoxName.Text;
+                _creature.sex = sex;
+                _creature.owner = textBoxOwner.Text;
                 Creature parent = null;
                 if (checkBoxIsBred.Checked)
                     parent = parentComboBoxMother.SelectedParent;
-                creature.motherGuid = parent?.guid ?? Guid.Empty;
+                _creature.motherGuid = parent?.guid ?? Guid.Empty;
                 bool parentsChanged = false;
-                if (creature.Mother != parent)
+                if (_creature.Mother != parent)
                 {
-                    creature.Mother = parent;
+                    _creature.Mother = parent;
                     parentsChanged = true;
                 }
                 parent = null;
                 if (checkBoxIsBred.Checked)
                     parent = parentComboBoxFather.SelectedParent;
-                creature.fatherGuid = parent?.guid ?? Guid.Empty;
-                if (creature.Father != parent)
+                _creature.fatherGuid = parent?.guid ?? Guid.Empty;
+                if (_creature.Father != parent)
                 {
-                    creature.Father = parent;
+                    _creature.Father = parent;
                     parentsChanged = true;
                 }
                 if (parentsChanged)
-                    creature.RecalculateAncestorGenerations();
+                    _creature.RecalculateAncestorGenerations();
 
-                creature.isBred = checkBoxIsBred.Checked;
+                _creature.isBred = checkBoxIsBred.Checked;
 
-                creature.note = textBoxNote.Text;
-                bool creatureStatusChanged = (creature.status != creatureStatus);
-                creature.status = creatureStatus;
+                _creature.note = textBoxNote.Text;
+                bool creatureStatusChanged = (_creature.Status != creatureStatus);
+                _creature.Status = creatureStatus;
 
-                Changed(creature, creatureStatusChanged, true);
+                Changed?.Invoke(_creature, creatureStatusChanged, true);
                 UpdateLabel();
-                ResumeLayout();
             }
         }
 
@@ -196,9 +193,9 @@ namespace ARKBreedingStats
             parentComboBoxFather.Items.Clear();
             parentList = new List<Creature>[2];
             CloseSettings(false);
-            groupBox1.Text = "";
-            creature = null;
-            labelParents.Text = "";
+            groupBox1.Text = string.Empty;
+            _creature = null;
+            labelParents.Text = string.Empty;
             statsDisplay1.Clear();
             pictureBox1.Visible = false;
             regionColorChooser1.Clear();
@@ -223,7 +220,7 @@ namespace ARKBreedingStats
         private void buttonStatus_Click(object sender, EventArgs e)
         {
             creatureStatus = Utils.NextStatus(creatureStatus);
-            buttonStatus.Text = Utils.StatusSymbol(creatureStatus);
+            SetStatusButton(creatureStatus);
         }
 
         private void checkBoxIsBred_CheckedChanged(object sender, EventArgs e)
@@ -235,14 +232,16 @@ namespace ARKBreedingStats
 
         private void RegionColorChooser1_RegionColorChosen()
         {
-            creature.colors = regionColorChooser1.ColorIDs;
-            pictureBox1.Image = CreatureColored.getColoredCreature(creature.colors, creature.Species, colorRegionUseds);
-            Changed(creature, false, false);
+            if (_creature == null) return;
+
+            pictureBox1.Image = CreatureColored.GetColoredCreature(_creature.colors, _creature.Species, colorRegionUseds, creatureSex: _creature.sex);
+            _creature.colors = regionColorChooser1.ColorIDs;
+            Changed?.Invoke(_creature, false, false);
         }
 
         private void pictureBox1_Click(object sender, EventArgs e)
         {
-            creature?.ExportInfoGraphicToClipboard(cc);
+            _creature?.ExportInfoGraphicToClipboard(cc);
         }
     }
 }

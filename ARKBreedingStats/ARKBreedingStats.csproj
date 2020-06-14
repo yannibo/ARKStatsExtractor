@@ -38,6 +38,7 @@
     <DefineConstants>DEBUG;TRACE</DefineConstants>
     <ErrorReport>prompt</ErrorReport>
     <WarningLevel>4</WarningLevel>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
   </PropertyGroup>
   <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Release|AnyCPU' ">
     <PlatformTarget>AnyCPU</PlatformTarget>
@@ -47,6 +48,7 @@
     <DefineConstants>TRACE</DefineConstants>
     <ErrorReport>prompt</ErrorReport>
     <WarningLevel>4</WarningLevel>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
   </PropertyGroup>
   <PropertyGroup>
     <ApplicationIcon>ARKSmartBreeding.ico</ApplicationIcon>
@@ -55,6 +57,8 @@
     <Reference Include="System" />
     <Reference Include="System.Configuration" />
     <Reference Include="System.Core" />
+    <Reference Include="System.IO.Compression" />
+    <Reference Include="System.IO.Compression.FileSystem" />
     <Reference Include="System.Runtime.Serialization" />
     <Reference Include="System.Security" />
     <Reference Include="System.Speech" />
@@ -154,6 +158,7 @@
     <Compile Include="oldLibraryFormat\CreatureValuesOld.cs" />
     <Compile Include="oldLibraryFormat\IncubationTimerEntryOld.cs" />
     <Compile Include="oldLibraryFormat\TimerListEntryOld.cs" />
+    <Compile Include="Settings.cs" />
     <Compile Include="settings\ATImportExportedFolderLocation.cs" />
     <Compile Include="settings\ATImportFileLocation.cs" />
     <Compile Include="settings\ATImportExportedFolderLoactionDialog.cs">
@@ -341,6 +346,12 @@
     </Compile>
     <Compile Include="mods\ModValuesManager.Designer.cs">
       <DependentUpon>ModValuesManager.cs</DependentUpon>
+    </Compile>
+    <Compile Include="uiControls\LibraryFilter.cs">
+      <SubType>Form</SubType>
+    </Compile>
+    <Compile Include="uiControls\LibraryFilter.Designer.cs">
+      <DependentUpon>LibraryFilter.cs</DependentUpon>
     </Compile>
     <Compile Include="uiControls\MultiSetterTag.cs">
       <SubType>UserControl</SubType>
@@ -597,6 +608,7 @@
     <EmbeddedResource Include="local\strings.resx">
       <Generator>ResXFileCodeGenerator</Generator>
       <LastGenOutput>strings.Designer.cs</LastGenOutput>
+      <SubType>Designer</SubType>
     </EmbeddedResource>
     <EmbeddedResource Include="local\strings.zh.resx" />
     <EmbeddedResource Include="mods\CustomStatOverridesEditor.resx">
@@ -667,6 +679,9 @@
     </EmbeddedResource>
     <EmbeddedResource Include="mods\ModValuesManager.resx">
       <DependentUpon>ModValuesManager.cs</DependentUpon>
+    </EmbeddedResource>
+    <EmbeddedResource Include="uiControls\LibraryFilter.resx">
+      <DependentUpon>LibraryFilter.cs</DependentUpon>
     </EmbeddedResource>
     <EmbeddedResource Include="uiControls\MultiSetterTag.resx">
       <DependentUpon>MultiSetterTag.cs</DependentUpon>

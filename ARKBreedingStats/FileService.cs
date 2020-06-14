@@ -15,11 +15,14 @@ namespace ARKBreedingStats
         public const string ValuesServerMultipliers = "serverMultipliers.json";
         public const string TamingFoodData = "tamingFoodData.json";
         public const string ModsManifest = "_manifest.json";
+        public const string ModsManifestCustom = "_manifestCustom.json";
         public const string KibblesJson = "kibbles.json";
         public const string AliasesJson = "aliases.json";
         public const string ArkDataJson = "ark_data.json";
         public const string IgnoreSpeciesClasses = "ignoreSpeciesClasses.json";
         public const string CustomReplacingsNamePattern = "customReplacings.json";
+        public const string ImageFolderName = "img";
+        public const string CacheFolderName = "cache";
 
         public static readonly string ExeFilePath = new Uri(Assembly.GetExecutingAssembly().CodeBase).LocalPath;
         public static readonly string ExeLocation = Path.GetDirectoryName(new Uri(Assembly.GetExecutingAssembly().CodeBase).LocalPath);
@@ -45,24 +48,21 @@ namespace ARKBreedingStats
         }
 
         /// <summary>
-        /// Gets the full path for the given filename or the path to the application data folder
+        /// Gets the full path for the given filename or the path to the application data folder.
+        /// If fileName2 is given, fileName is considered to be the containing folder.
         /// </summary>
-        /// <param name="fileName"></param>
         /// <returns></returns>
-        public static string GetPath(string fileName = null)
-        {
-            return Path.Combine(Updater.IsProgramInstalled ? getLocalApplicationDataPath() : ExeLocation, fileName ?? string.Empty);
-        }
+        public static string GetPath(string fileName = null, string fileName2 = null, string fileName3 = null)
+            => Path.Combine(Updater.IsProgramInstalled ? getLocalApplicationDataPath() : ExeLocation, fileName ?? string.Empty, fileName2 ?? string.Empty, fileName3 ?? string.Empty);
+
 
         /// <summary>
-        /// Gets the full path for the given filename or the path to the json folder
+        /// Gets the full path for the given filename or the path to the json folder.
+        /// If fileName2 is given, fileName is considered to be the containing folder.
         /// </summary>
-        /// <param name="fileName"></param>
         /// <returns></returns>
-        public static string GetJsonPath(string fileName = null, string fileName2 = null)
-        {
-            return Path.Combine(Updater.IsProgramInstalled ? getLocalApplicationDataPath() : ExeLocation, jsonFolder, fileName ?? string.Empty, fileName2 ?? string.Empty);
-        }
+        public static string GetJsonPath(string fileName = null, string fileName2 = null) =>
+            GetPath(jsonFolder, fileName, fileName2);
 
         private static string getLocalApplicationDataPath()
         {
@@ -100,12 +100,11 @@ namespace ARKBreedingStats
         /// </summary>
         /// <param name="filePath">filePath</param>
         /// <param name="data"></param>
-        public static bool LoadJSONFile<T>(string filePath, out T data, out string errorMessage)
+        /// <param name="errorMessage"></param>
+        public static bool LoadJSONFile<T>(string filePath, out T data, out string errorMessage) where T : class
         {
             errorMessage = null;
-            data = default;
-            if (!File.Exists(filePath))
-                return false;
+            data = null;
 
             // load json-file of data
             try
@@ -114,7 +113,11 @@ namespace ARKBreedingStats
                 {
                     var ser = new Newtonsoft.Json.JsonSerializer();
                     data = (T)ser.Deserialize(sr, typeof(T));
-                    return true;
+                    if (data != null)
+                        return true;
+
+                    errorMessage = $"File\n{Path.GetFullPath(filePath)}\n contains no readable data.";
+                    return false;
                 }
             }
             catch (Newtonsoft.Json.JsonReaderException ex)
@@ -153,7 +156,6 @@ namespace ARKBreedingStats
         /// <summary>
         /// Tries to delete a file, doesn't throw an exception.
         /// </summary>
-        /// <param name="filePath"></param>
         public static bool TryDeleteFile(string filePath)
         {
             if (!File.Exists(filePath)) return false;
@@ -162,7 +164,28 @@ namespace ARKBreedingStats
                 File.Delete(filePath);
                 return true;
             }
-            catch { }
+            catch
+            {
+                // ignored
+            }
+            return false;
+        }
+
+        /// <summary>
+        /// Tries to delete a file, doesn't throw an exception.
+        /// </summary>
+        public static bool TryDeleteFile(FileInfo fileInfo)
+        {
+            if (!fileInfo.Exists) return false;
+            try
+            {
+                fileInfo.Delete();
+                return true;
+            }
+            catch
+            {
+                // ignored
+            }
             return false;
         }
 
@@ -201,6 +224,28 @@ namespace ARKBreedingStats
                 return true;
             }
             return false;
+        }
+
+        /// <summary>
+        /// Checks if a file is a valid json file.
+        /// </summary>
+        /// <param name="filePath"></param>
+        /// <returns></returns>
+        internal static bool IsValidJsonFile(string filePath)
+        {
+            if (!File.Exists(filePath))
+                return false;
+
+            string fileContent = File.ReadAllText(filePath);
+            // currently very basic test, could be improved
+            return fileContent.StartsWith("{") && fileContent.EndsWith("}");
+
+            //try
+            //{
+            //    Newtonsoft.Json.Linq.JObject.Parse(fileContent);
+            //    return true;
+            //}
+            //catch { return false; }
         }
     }
 }

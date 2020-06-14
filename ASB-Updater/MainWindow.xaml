@@ -6,29 +6,56 @@
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
     mc:Ignorable="d"
     Title="ASB Updater" 
-    Height="95" 
-    Width="250"
-    WindowStyle="None"
-    WindowStartupLocation="CenterScreen" >
+    Height="450" 
+    Width="450"
+    WindowStartupLocation="CenterScreen" WindowStyle="ToolWindow" >
 
     <Grid>
-
         <Grid.RowDefinitions>
-            <RowDefinition Height="1*" />
-            <RowDefinition Height="3*" />
-            <RowDefinition Height="1*" />
+            <RowDefinition />
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto" />
         </Grid.RowDefinitions>
-
-        <Label
-            x:Name="updateStatus"
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition/>
+            <ColumnDefinition/>
+        </Grid.ColumnDefinitions>
+        <ScrollViewer 
+            VerticalScrollBarVisibility="Auto"
+            x:Name="ScrollViewer"
+            Background="Black"
+            Grid.ColumnSpan="2">
+            <StackPanel x:Name="StackPanelLog">
+                <StackPanel.Resources>
+                    <Style TargetType="TextBlock">
+                        <Setter Property="Padding" Value="3"></Setter>
+                        <Setter Property="Foreground" Value="Ivory"></Setter>
+                        <Setter Property="TextWrapping" Value="Wrap"></Setter>
+                    </Style>
+                </StackPanel.Resources>
+                <TextBlock Text="ARK Smart Breeding updater" FontWeight="Bold" FontSize="14"/>
+            </StackPanel>
+        </ScrollViewer>
+        <ProgressBar 
+            x:Name="progressBar"
             Grid.Row="1"
-            VerticalAlignment="Center"
-            HorizontalAlignment="Center"
-            HorizontalContentAlignment="Center"
-            Width="250"
-            Height="27"
-            Content="Checking for updates…" />
+            Height="5"
+            Grid.ColumnSpan="2"/>
+        <Button 
+            Content="Copy log to clipboard"
+            Click="CopyToClipboardClick"
+            Grid.Row="2"
+            Padding="5"
+            x:Name="BtCopyToClipboard"/>
+        <Button 
+            Content="Close"
+            Click="CloseClick"
+            Grid.Row="2"
+            Padding="5"
+            IsEnabled="False" 
+            x:Name="BtClose"
+            Grid.Column="1"/>
 
     </Grid>
-    
+
 </Window>

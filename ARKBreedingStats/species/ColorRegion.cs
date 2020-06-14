@@ -16,11 +16,11 @@ namespace ARKBreedingStats.species
         /// <summary>
         /// List of natural occuring ARKColors.
         /// </summary>
-        public List<ARKColor> naturalColors;
+        public List<ArkColor> naturalColors;
 
         public ColorRegion()
         {
-            name = Loc.s("unknown");
+            name = Loc.S("Unknown");
         }
 
         /// <summary>
@@ -29,11 +29,11 @@ namespace ARKBreedingStats.species
         internal void Initialize(ARKColors arkColors)
         {
             if (colors == null) return;
-            naturalColors = new List<ARKColor>();
+            naturalColors = new List<ArkColor>();
             foreach (var c in colors)
             {
-                ARKColor cl = arkColors.ByName(c);
-                if (cl.hash != 0 && !naturalColors.Contains(cl))
+                ArkColor cl = arkColors.ByName(c);
+                if (cl.Hash != 0 && !naturalColors.Contains(cl))
                     naturalColors.Add(cl);
             }
         }

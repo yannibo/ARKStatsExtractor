@@ -119,14 +119,9 @@ namespace ARKBreedingStats
             if (creatureCollection.changeCreatureStatusOnSavegameImport)
             {
                 // mark creatures that are no longer present as unavailable
-                var removedCreatures = creatureCollection.creatures.Where(c => c.status == CreatureStatus.Available && c.server == serverName).Except(newCreatures);
+                var removedCreatures = creatureCollection.creatures.Where(c => c.Status == CreatureStatus.Available && c.server == serverName).Except(newCreatures);
                 foreach (var c in removedCreatures)
-                    c.status = CreatureStatus.Unavailable;
-
-                // mark creatures that re-appear as available (due to server transfer / obelisk / etc)
-                var readdedCreatures = creatureCollection.creatures.Where(c => c.status == CreatureStatus.Unavailable || c.status == CreatureStatus.Obelisk).Intersect(newCreatures);
-                foreach (var c in readdedCreatures)
-                    c.status = CreatureStatus.Available;
+                    c.Status = CreatureStatus.Unavailable;
             }
 
             newCreatures.ForEach(creature =>
@@ -134,7 +129,7 @@ namespace ARKBreedingStats
                 creature.server = serverName;
             });
 
-            creatureCollection.MergeCreatureList(newCreatures, true, false, true);
+            creatureCollection.MergeCreatureList(newCreatures, addPreviouslylDeletedCreatures: true);
         }
 
         private Creature ConvertGameObject(GameObject creatureObject, int? levelStep)
@@ -231,16 +226,11 @@ namespace ARKBreedingStats
             bool isDead = creatureObject.GetPropertyValue<bool>("bIsDead");
             if (isDead)
             {
-                creature.status = CreatureStatus.Dead; // dead is always dead
-            }
-
-            if (!isDead && creature.status == CreatureStatus.Dead)
-            {
-                creature.status = CreatureStatus.Unavailable; // if found alive when marked dead, mark as unavailable
+                creature.Status = CreatureStatus.Dead; // dead is always dead
             }
 
             if (creatureObject.IsCryo)
-                creature.status = CreatureStatus.Cryopod;
+                creature.Status = CreatureStatus.Cryopod;
 
             creature.RecalculateCreatureValues(levelStep);
 

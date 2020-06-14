@@ -17,7 +17,17 @@ namespace ARKBreedingStats.values
     public class Values
     {
         public const int STATS_COUNT = 12;
-        public const string CURRENT_FORMAT_VERSION = "1.12";
+
+        /// <summary>
+        /// Checks if the version string is a format version that is supported by the version of this application.
+        /// </summary>
+        /// <param name="version"></param>
+        /// <returns></returns>
+        public static bool IsValidFormatVersion(string version)
+        => !string.IsNullOrEmpty(version) && (
+               version == "1.12"
+            || version == "1.13"
+            );
 
         private static Values _V;
 
@@ -36,6 +46,12 @@ namespace ARKBreedingStats.values
         public List<List<object>> colorDefinitions;
         [JsonProperty]
         public List<List<object>> dyeDefinitions;
+        /// <summary>
+        /// If a species for a blueprintpath is requested, the blueprintPath will be remapped if an according key is present.
+        /// This is needed if species are remapped ingame, e.g. if a variant is removed.
+        /// </summary>
+        [JsonProperty("remaps")]
+        private Dictionary<string, string> blueprintRemapping;
 
         public ARKColors Colors;
         public ARKColors Dyes;
@@ -160,14 +176,12 @@ namespace ARKBreedingStats.values
 
         private static Values LoadValuesFile(string filePath)
         {
-            Values tmpV;
-            using (StreamReader file = File.OpenText(filePath))
+            if (FileService.LoadJSONFile(filePath, out Values readData, out string errorMessage))
             {
-                JsonSerializer serializer = new JsonSerializer();
-                tmpV = (Values)serializer.Deserialize(file, typeof(Values));
+                if (!IsValidFormatVersion(readData.format)) throw new FormatException("Unhandled format version");
+                return readData;
             }
-            if (tmpV.format != CURRENT_FORMAT_VERSION) throw new FormatException("Unhandled format version");
-            return tmpV;
+            throw new FileLoadException(errorMessage);
         }
 
         /// <summary>
@@ -224,7 +238,7 @@ namespace ARKBreedingStats.values
             {
                 string filename = FileService.GetJsonPath(Path.Combine(FileService.ValuesFolder, mf));
 
-                if (TryLoadValuesFile(filename, setModFileName: true, throwExceptionOnFail, out Values modValues, out string modFileErrorMessage))
+                if (TryLoadValuesFile(filename, setModFileName: true, false, out Values modValues, out string modFileErrorMessage))
                 {
                     modifiedValues.Add(modValues);
                 }
@@ -307,7 +321,8 @@ namespace ARKBreedingStats.values
                 string modFilePath = Path.Combine(valuesFolder, mf);
                 if (!File.Exists(modFilePath))
                 {
-                    if (modsManifest.modsByFiles.ContainsKey(mf))
+                    if (modsManifest.modsByFiles.ContainsKey(mf)
+                        && modsManifest.modsByFiles[mf].onlineAvailable)
                         missingModValueFilesOnlineAvailable.Add(mf);
                     else
                         missingModValueFilesOnlineNotAvailable.Add(mf);
@@ -315,20 +330,16 @@ namespace ARKBreedingStats.values
                 else if (modsManifest.modsByFiles.ContainsKey(mf))
                 {
                     // check if an update is available
-                    bool downloadRecommended = true;
-
-
-                    if (TryLoadValuesFile(modFilePath, setModFileName: false, throwExceptionOnFail: false, out Values modValues, errorMessage: out _)
-                        && modValues.Version >= modsManifest.modsByFiles[mf].Version)
+                    if (modsManifest.modsByFiles[mf].onlineAvailable
+                        && modsManifest.modsByFiles[mf].Version != null
+                        && TryLoadValuesFile(modFilePath, setModFileName: false, throwExceptionOnFail: false,
+                            out Values modValues, errorMessage: out _)
+                        && modValues.Version < modsManifest.modsByFiles[mf].Version)
                     {
-                        downloadRecommended = false;
-                    }
-                    if (downloadRecommended)
                         modValueFilesWithAvailableUpdate.Add(mf);
+                    }
                 }
             }
-
-            // UpdateManualModValueFiles(); // TODO
 
             return (missingModValueFilesOnlineAvailable,
                     missingModValueFilesOnlineNotAvailable,
@@ -494,6 +505,8 @@ namespace ARKBreedingStats.values
                     sp.breeding.gestationTimeAdjusted = sp.breeding.gestationTime / currentServerMultipliers.EggHatchSpeedMultiplier;
                     sp.breeding.incubationTimeAdjusted = sp.breeding.incubationTime / currentServerMultipliers.EggHatchSpeedMultiplier;
                 }
+                if (currentServerMultipliers.MatingSpeedMultiplier > 0)
+                    sp.breeding.matingTimeAdjusted = sp.breeding.matingTime / currentServerMultipliers.MatingSpeedMultiplier;
                 if (currentServerMultipliers.BabyMatureSpeedMultiplier > 0)
                     sp.breeding.maturationTimeAdjusted = sp.breeding.maturationTime / currentServerMultipliers.BabyMatureSpeedMultiplier;
 
@@ -641,6 +654,10 @@ namespace ARKBreedingStats.values
         public Species SpeciesByBlueprint(string blueprintpath)
         {
             if (string.IsNullOrEmpty(blueprintpath)) return null;
+            if (blueprintRemapping != null && blueprintRemapping.ContainsKey(blueprintpath))
+            {
+                blueprintpath = blueprintRemapping[blueprintpath];
+            }
             return blueprintToSpecies.ContainsKey(blueprintpath) ? blueprintToSpecies[blueprintpath] : null;
         }
 
@@ -650,18 +667,7 @@ namespace ARKBreedingStats.values
         /// <param name="mm"></param>
         internal void SetModsManifest(ModsManifest mm)
         {
-            if (mm == null)
-                modsManifest = new ModsManifest();
-            else
-                modsManifest = mm;
-        }
-
-        /// <summary>
-        /// add possible mod-value files that are not listed in the manifest-file (manually created)
-        /// </summary>
-        internal void UpdateManualModValueFiles()
-        {
-            // TODO loop through modvalue files and check if file is not yet loaded in manifest.
+            modsManifest = mm ?? new ModsManifest();
         }
 
         private void LoadIgnoreSpeciesClassesFile()

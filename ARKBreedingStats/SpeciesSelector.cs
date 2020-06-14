@@ -2,8 +2,8 @@
 using ARKBreedingStats.values;
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Drawing;
-using System.IO;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
@@ -13,53 +13,39 @@ namespace ARKBreedingStats
 {
     public partial class SpeciesSelector : UserControl
     {
-        public delegate void speciesChangedEventHandler(bool speciesChanged = true);
+        /// <summary>
+        /// Is invoked if a species was selected. The parameter is true if the species was changed.
+        /// </summary>
+        public event Action<bool> OnSpeciesSelected;
 
-        public event speciesChangedEventHandler onSpeciesChanged;
         /// <summary>
         /// The currently selected species
         /// </summary>
         public Species SelectedSpecies { get; private set; }
+
         /// <summary>
         /// Items for the species list.
         /// </summary>
-        private List<SpeciesListEntry> entryList;
-        public TabPage lastTabPage;
-        private uiControls.TextBoxSuggest textbox;
+        private List<SpeciesListEntry> _entryList;
+
         /// <summary>
-        /// List of species-blueprintpaths last used by the user
+        /// The TextBox control for the species searching which is outside of this control.
         /// </summary>
-        private List<string> lastSpeciesBPs;
-        private readonly List<string> iconIndices;
-        public readonly int keepNrLastSpecies;
-        private CancellationTokenSource cancelSource;
+        private uiControls.TextBoxSuggest _textBox;
+
+        /// <summary>
+        /// List of species-blueprintPaths last used by the user
+        /// </summary>
+        private List<string> _lastSpeciesBPs;
+        private List<string> _iconIndices;
+        private CancellationTokenSource _cancelSource;
 
         public SpeciesSelector()
         {
             InitializeComponent();
-            lastSpeciesBPs = new List<string>();
-            iconIndices = new List<string>();
-            keepNrLastSpecies = 20;
+            _lastSpeciesBPs = new List<string>();
+            _iconIndices = new List<string>();
             SplitterDistance = Properties.Settings.Default.SpeciesSelectorVerticalSplitterDistance;
-
-            // imageList
-            ImageList lImgList = new ImageList();
-            if (Directory.Exists("img"))
-            {
-                string[] speciesImageFiles = Directory.GetFiles("img", "*.png", SearchOption.TopDirectoryOnly);
-                foreach (string icon in speciesImageFiles)
-                {
-                    int i = icon.IndexOf("_");
-                    if (i == -1)
-                    {
-                        lImgList.Images.Add(Image.FromFile(icon));
-                        iconIndices.Add(Path.GetFileNameWithoutExtension(icon));
-                    }
-                }
-
-                lImgList.ImageSize = new Size(64, 64);
-                lvLastSpecies.LargeImageList = lImgList;
-            }
         }
 
         /// <summary>
@@ -69,23 +55,62 @@ namespace ARKBreedingStats
         /// <param name="aliases"></param>
         public void SetSpeciesLists(List<Species> species, Dictionary<string, string> aliases)
         {
+            ImageList imageList;
+            (_entryList, imageList, _iconIndices) = LoadSpeciesImagesAndCreateSpeciesList(species, aliases);
+
+            imageList.ImageSize = new Size(64, 64);
+            lvLastSpecies.LargeImageList = imageList;
+            lvSpeciesInLibrary.LargeImageList = imageList;
+
+            // autocomplete for species-input
+            var al = new AutoCompleteStringCollection();
+            al.AddRange(_entryList.Select(e => e.SearchName).ToArray());
+            _textBox.AutoCompleteCustomSource = al;
+
+            cbDisplayUntameable.Checked = Properties.Settings.Default.DisplayNonDomesticableSpecies;
+            FilterList();
+        }
+
+        private static (List<SpeciesListEntry>, ImageList, List<string>) LoadSpeciesImagesAndCreateSpeciesList(List<Species> species, Dictionary<string, string> aliases)
+        {
             Dictionary<string, Species> speciesNameToSpecies = new Dictionary<string, Species>();
 
+            var creatureColors = new int[]
+                {44, 42, 57, 10, 26, 78}; // uniform color pattern that is used for all species in the selector
+            var creatureColorsPolar = new int[]
+                {18, 18, 18, 18, 18, 18}; // uniform color pattern that is used for all polar species in the selector
+            ImageList lImgList = new ImageList();
+            var iconIndices = new List<string>();
+
+            //var speciesWOImage = new List<string>();// TODO debug
             foreach (Species ss in species)
             {
                 if (!speciesNameToSpecies.ContainsKey(ss.DescriptiveNameAndMod))
                     speciesNameToSpecies.Add(ss.DescriptiveNameAndMod, ss);
+
+                var (imgExists, imagePath, speciesListName) = CreatureColored.SpeciesImageExists(ss,
+                    ss.name.Contains("Polar") ? creatureColorsPolar : creatureColors);
+                if (imgExists && !iconIndices.Contains(speciesListName))
+                {
+                    lImgList.Images.Add(Image.FromFile(imagePath));
+                    iconIndices.Add(speciesListName);
+                }
+
+                //if (!imgExists && !speciesWOImage.Contains(ss.name)) speciesWOImage.Add(ss.name);
             }
-            entryList = new List<SpeciesListEntry>();
+            //Clipboard.SetText(string.Join("\n", speciesWOImage));
+
+
+            var entryList = new List<SpeciesListEntry>();
 
             foreach (var s in species)
             {
                 entryList.Add(new SpeciesListEntry
                 {
-                    displayName = s.name,
-                    searchName = s.name,
-                    modName = s.Mod?.title ?? string.Empty,
-                    species = s
+                    DisplayName = s.name,
+                    SearchName = s.name,
+                    ModName = s.Mod?.title ?? string.Empty,
+                    Species = s
                 });
             }
 
@@ -95,23 +120,16 @@ namespace ARKBreedingStats
                 {
                     entryList.Add(new SpeciesListEntry
                     {
-                        displayName = a.Key + " (→" + speciesNameToSpecies[a.Value].name + ")",
-                        searchName = a.Key,
-                        species = speciesNameToSpecies[a.Value],
-                        modName = speciesNameToSpecies[a.Value].Mod?.title ?? string.Empty,
+                        DisplayName = a.Key + " (→" + speciesNameToSpecies[a.Value].name + ")",
+                        SearchName = a.Key,
+                        Species = speciesNameToSpecies[a.Value],
+                        ModName = speciesNameToSpecies[a.Value].Mod?.title ?? string.Empty,
                     });
                 }
             }
 
-            entryList = entryList.OrderBy(s => s.displayName).ToList();
-
-            // autocomplete for species-input
-            var al = new AutoCompleteStringCollection();
-            al.AddRange(entryList.Select(e => e.searchName).ToArray());
-            textbox.AutoCompleteCustomSource = al;
-
-            cbDisplayUntameable.Checked = Properties.Settings.Default.DisplayNonDomesticableSpecies;
-            FilterList();
+            entryList = entryList.OrderBy(s => s.DisplayName).ToList();
+            return (entryList, lImgList, iconIndices);
         }
 
         /// <summary>
@@ -122,11 +140,17 @@ namespace ARKBreedingStats
         {
             lvSpeciesInLibrary.Items.Clear();
             foreach (Species s in librarySpeciesList)
-                lvSpeciesInLibrary.Items.Add(new ListViewItem
+            {
+                ListViewItem lvi = new ListViewItem
                 {
                     Text = s.DescriptiveNameAndMod,
                     Tag = s
-                });
+                };
+                int ii = SpeciesImageIndex(s.name);
+                if (ii != -1)
+                    lvi.ImageIndex = ii;
+                lvSpeciesInLibrary.Items.Add(lvi);
+            }
         }
 
         /// <summary>
@@ -135,7 +159,7 @@ namespace ARKBreedingStats
         private void UpdateLastSpecies()
         {
             lvLastSpecies.Items.Clear();
-            foreach (string s in lastSpeciesBPs)
+            foreach (string s in _lastSpeciesBPs)
             {
                 var species = Values.V.SpeciesByBlueprint(s);
                 if (species != null)
@@ -155,26 +179,26 @@ namespace ARKBreedingStats
 
         private void FilterList(string part = null)
         {
-            if (entryList == null) return;
+            if (_entryList == null) return;
 
             lvSpeciesList.BeginUpdate();
             lvSpeciesList.Items.Clear();
             bool inputIsEmpty = string.IsNullOrWhiteSpace(part);
-            foreach (var s in entryList)
+            foreach (var s in _entryList)
             {
-                if ((Properties.Settings.Default.DisplayNonDomesticableSpecies || s.species.IsDomesticable)
+                if ((Properties.Settings.Default.DisplayNonDomesticableSpecies || s.Species.IsDomesticable)
                     && (inputIsEmpty
-                       || s.searchName.ToLower().Contains(part.ToLower())
+                       || s.SearchName.ToLower().Contains(part.ToLower())
                        )
                    )
                 {
-                    lvSpeciesList.Items.Add(new ListViewItem(new[] { s.displayName, s.species.VariantInfo, s.species.IsDomesticable ? "✓" : string.Empty, s.modName })
+                    lvSpeciesList.Items.Add(new ListViewItem(new[] { s.DisplayName, s.Species.VariantInfo, s.Species.IsDomesticable ? "✓" : string.Empty, s.ModName })
                     {
-                        Tag = s.species,
-                        BackColor = !s.species.IsDomesticable ? Color.FromArgb(255, 245, 230)
-                        : !string.IsNullOrEmpty(s.modName) ? Color.FromArgb(230, 245, 255)
+                        Tag = s.Species,
+                        BackColor = !s.Species.IsDomesticable ? Color.FromArgb(255, 245, 230)
+                        : !string.IsNullOrEmpty(s.ModName) ? Color.FromArgb(230, 245, 255)
                         : SystemColors.Window,
-                        ToolTipText = s.species.blueprintPath,
+                        ToolTipText = s.Species.blueprintPath,
                     });
                 }
             }
@@ -184,19 +208,19 @@ namespace ARKBreedingStats
         private void lvSpeciesList_SelectedIndexChanged(object sender, EventArgs e)
         {
             if (lvSpeciesList.SelectedItems.Count > 0)
-                SetSpecies((Species)lvSpeciesList.SelectedItems[0].Tag);
+                SetSpecies((Species)lvSpeciesList.SelectedItems[0].Tag, true);
         }
 
         private void lvOftenUsed_SelectedIndexChanged(object sender, EventArgs e)
         {
             if (lvLastSpecies.SelectedItems.Count > 0)
-                SetSpecies((Species)((ListViewItem)lvLastSpecies.SelectedItems[0]).Tag);
+                SetSpecies((Species)lvLastSpecies.SelectedItems[0].Tag, true);
         }
 
         private void lvSpeciesInLibrary_SelectedIndexChanged(object sender, EventArgs e)
         {
             if (lvSpeciesInLibrary.SelectedItems.Count > 0)
-                SetSpecies((Species)((ListViewItem)lvSpeciesInLibrary.SelectedItems[0]).Tag);
+                SetSpecies((Species)lvSpeciesInLibrary.SelectedItems[0].Tag, true);
         }
 
         /// <summary>
@@ -211,71 +235,77 @@ namespace ARKBreedingStats
             }
         }
 
-        public void SetSpecies(Species species)
+        public void SetSpecies(Species species, bool alsoTriggerOnSameSpecies = false)
         {
             if (species == null) return;
+            if (SelectedSpecies == species)
+            {
+                if (alsoTriggerOnSameSpecies)
+                    OnSpeciesSelected?.Invoke(false);
+                return;
+            }
 
-            lastSpeciesBPs.Remove(species.blueprintPath);
-            if (lastSpeciesBPs.Count > keepNrLastSpecies) // only keep keepNrLastSpecies of the last species in this list
-                lastSpeciesBPs.RemoveRange(keepNrLastSpecies, lastSpeciesBPs.Count - keepNrLastSpecies);
-            lastSpeciesBPs.Insert(0, species.blueprintPath);
+            _lastSpeciesBPs.Remove(species.blueprintPath);
+            _lastSpeciesBPs.Insert(0, species.blueprintPath);
+            if (_lastSpeciesBPs.Count > Properties.Settings.Default.SpeciesSelectorCountLastSpecies) // only keep keepNrLastSpecies of the last species in this list
+                _lastSpeciesBPs.RemoveRange(Properties.Settings.Default.SpeciesSelectorCountLastSpecies, _lastSpeciesBPs.Count - Properties.Settings.Default.SpeciesSelectorCountLastSpecies);
             UpdateLastSpecies();
             SelectedSpecies = species;
 
-            onSpeciesChanged?.Invoke();
+            OnSpeciesSelected?.Invoke(true);
         }
 
         public void SetTextBox(uiControls.TextBoxSuggest textbox)
         {
-            this.textbox = textbox;
+            this._textBox = textbox;
             textbox.TextChanged += Textbox_TextChanged;
         }
 
         private async void Textbox_TextChanged(object sender, EventArgs e)
         {
-            cancelSource?.Cancel();
-            using (cancelSource = new CancellationTokenSource())
+            _cancelSource?.Cancel();
+            using (_cancelSource = new CancellationTokenSource())
             {
                 try
                 {
-                    await Task.Delay(200, cancelSource.Token); // give the textbox time to apply the selection for the appended text
-                    FilterList(textbox.Text.Substring(0, textbox.SelectionStart));
+                    await Task.Delay(200, _cancelSource.Token); // give the textBox time to apply the selection for the appended text
+                    FilterList(_textBox.Text.Substring(0, _textBox.SelectionStart));
                 }
                 catch (TaskCanceledException)
                 {
                     return;
                 }
             }
-            cancelSource = null;
+            _cancelSource = null;
         }
 
         public string[] LastSpecies
         {
-            get => lastSpeciesBPs.ToArray();
+            get => _lastSpeciesBPs.ToArray();
             set
             {
                 if (value == null)
-                    lastSpeciesBPs.Clear();
+                    _lastSpeciesBPs.Clear();
                 else
                 {
-                    lastSpeciesBPs = value.ToList();
+                    _lastSpeciesBPs = value.ToList();
                     UpdateLastSpecies();
                 }
             }
         }
 
-        private int SpeciesImageIndex(string speciesName = "")
+        private int SpeciesImageIndex(string speciesName = null)
         {
             if (string.IsNullOrWhiteSpace(speciesName))
                 speciesName = SelectedSpecies.name;
             else speciesName = Values.V.SpeciesName(speciesName);
-            if (speciesName.IndexOf("Aberrant ") != -1)
-                speciesName = speciesName.Substring(9);
-            return iconIndices.IndexOf(speciesName);
+            speciesName = CreatureColored.SpeciesImageName(speciesName, false);
+            return _iconIndices.IndexOf(speciesName);
         }
 
-        public Image SpeciesImage(string speciesName = "")
+        public Image SpeciesImage(string speciesName = null)
         {
+            if (lvLastSpecies.LargeImageList == null) return null;
             int ii = SpeciesImageIndex(speciesName);
             if (ii != -1 && ii < lvLastSpecies.LargeImageList.Images.Count)
                 return lvLastSpecies.LargeImageList.Images[ii];
@@ -284,7 +314,7 @@ namespace ARKBreedingStats
 
         private void btCancel_Click(object sender, EventArgs e)
         {
-            onSpeciesChanged?.Invoke(false);
+            OnSpeciesSelected?.Invoke(false);
         }
 
         private void cbDisplayUntameable_CheckedChanged(object sender, EventArgs e)
@@ -302,13 +332,10 @@ namespace ARKBreedingStats
 
     class SpeciesListEntry
     {
-        internal string searchName;
-        internal string displayName;
-        internal string modName;
-        internal Species species;
-        public override string ToString()
-        {
-            return displayName;
-        }
+        internal string SearchName;
+        internal string DisplayName;
+        internal string ModName;
+        internal Species Species;
+        public override string ToString() => DisplayName;
     }
 }

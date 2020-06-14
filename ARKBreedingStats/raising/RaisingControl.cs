@@ -4,6 +4,7 @@ using ARKBreedingStats.values;
 using System;
 using System.Drawing;
 using System.Linq;
+using System.Text;
 using System.Windows.Forms;
 
 namespace ARKBreedingStats.raising
@@ -12,8 +13,8 @@ namespace ARKBreedingStats.raising
     {
         public delegate void ExtractBabyEventHandler(Creature mother, Creature father);
         public event ExtractBabyEventHandler extractBaby;
-        public event Form1.collectionChangedEventHandler onChange;
-        public event Form1.SetSpeciesEventHandler SetGlobalSpecies;
+        public event Form1.CollectionChangedEventHandler onChange;
+        public event Action<Species> SetGlobalSpecies;
         private Species selectedSpecies;
         public bool updateListView;
         private TimeSpan babyTime, maturationTime;
@@ -32,6 +33,7 @@ namespace ARKBreedingStats.raising
             listViewBabies.Groups.Add("growing", "Juveniles / Adolescent");
             updateListView = false;
             listViewBabies.DoubleBuffered(true); // prevent flickering
+            listViewBabies.ListViewItemSorter = new ListViewColumnSorter();
         }
 
         public void UpdateRaisingData()
@@ -55,8 +57,11 @@ namespace ARKBreedingStats.raising
 
                     listViewRaisingTimes.Items.Clear();
 
-                    if (Raising.GetRaisingTimes(selectedSpecies, out string incubationMode, out TimeSpan incubationTime, out babyTime, out maturationTime, out TimeSpan nextMatingMin, out TimeSpan nextMatingMax))
+                    if (Raising.GetRaisingTimes(selectedSpecies, out TimeSpan matingTime, out string incubationMode, out TimeSpan incubationTime, out babyTime, out maturationTime, out TimeSpan nextMatingMin, out TimeSpan nextMatingMax))
                     {
+                        if (matingTime != TimeSpan.Zero)
+                            listViewRaisingTimes.Items.Add(new ListViewItem(new[] { Loc.S("matingTime"), matingTime.ToString("d':'hh':'mm':'ss") }));
+
                         TimeSpan totalTime = incubationTime;
                         DateTime until = DateTime.Now.Add(totalTime);
                         string[] times = { incubationMode, incubationTime.ToString("d':'hh':'mm':'ss"), totalTime.ToString("d':'hh':'mm':'ss"), Utils.ShortTimeDate(until) };
@@ -90,7 +95,7 @@ namespace ARKBreedingStats.raising
 
                             string FoodAmountString(string _foodName)
                             {
-                                if (selectedSpecies.taming.eats.IndexOf(_foodName) == -1) return null;
+                                if (Array.IndexOf(selectedSpecies.taming.eats, _foodName) == -1) return null;
                                 double foodValue;
                                 if (selectedSpecies.taming.specialFoodValues.TryGetValue(_foodName, out TamingFood tf))
                                     foodValue = tf.foodValue;
@@ -105,11 +110,18 @@ namespace ARKBreedingStats.raising
                             foodamount += "\n - Loss by spoiling is only a rough estimate and may vary.";
                         }
 
-                        string eggInfo = Raising.EggTemperature(selectedSpecies);
 
-                        labelRaisingInfos.Text = "Time between mating: " + nextMatingMin.ToString("d':'hh':'mm':'ss") + " to " + nextMatingMax.ToString("d':'hh':'mm':'ss")
-                            + (!string.IsNullOrEmpty(eggInfo) ? "\n\n" + eggInfo : string.Empty)
-                            + (foodamount ?? string.Empty);
+                        var raisingInfo = new StringBuilder();
+                        if (nextMatingMin != TimeSpan.Zero)
+                            raisingInfo.AppendLine($"{Loc.S("TimeBetweenMating")}: {nextMatingMin:d':'hh':'mm':'ss} to {nextMatingMax:d':'hh':'mm':'ss}");
+
+                        string eggInfo = Raising.EggTemperature(selectedSpecies);
+                        if (!string.IsNullOrEmpty(eggInfo))
+                            raisingInfo.AppendLine(eggInfo);
+                        if (!string.IsNullOrEmpty(foodamount))
+                            raisingInfo.AppendLine(foodamount);
+
+                        labelRaisingInfos.Text = raisingInfo.ToString().Trim();
 
                         tabPageMaturationProgress.Enabled = true;
                     }
@@ -177,14 +189,14 @@ namespace ARKBreedingStats.raising
             if (selectedSpecies.taming.eats != null)
             {
                 double foodAmount;
-                if (selectedSpecies.taming.eats.IndexOf("Raw Meat") >= 0)
+                if (Array.IndexOf(selectedSpecies.taming.eats, "Raw Meat") != -1)
                 {
                     if (uiControls.Trough.foodAmountFromUntil(selectedSpecies, Values.V.currentServerMultipliers.BabyFoodConsumptionSpeedMultiplier, maturation, 0.1, out foodAmount))
                         foodAmountBabyString = Math.Ceiling(foodAmount / 50) + " Raw Meat";
                     if (uiControls.Trough.foodAmountFromUntil(selectedSpecies, Values.V.currentServerMultipliers.BabyFoodConsumptionSpeedMultiplier, maturation, 1, out foodAmount))
                         foodAmountAdultString = Math.Ceiling(foodAmount / 50) + " Raw Meat";
                 }
-                else if (selectedSpecies.taming.eats.IndexOf("Mejoberry") >= 0)
+                else if (Array.IndexOf(selectedSpecies.taming.eats, "Mejoberry") != -1)
                 {
                     if (uiControls.Trough.foodAmountFromUntil(selectedSpecies, Values.V.currentServerMultipliers.BabyFoodConsumptionSpeedMultiplier, maturation, 0.1, out foodAmount))
                         foodAmountBabyString = Math.Ceiling(foodAmount / 30) + " Mejoberries";
@@ -454,7 +466,7 @@ namespace ARKBreedingStats.raising
                             nudMaturationProgress.Value = (decimal)maturing;
                         }
                     }
-                    parentStats1.setParentValues(c.Mother, c.Father);
+                    parentStats1.SetParentValues(c.Mother, c.Father);
 
                     // edit-box
                     creatureMaturationEdit = c;
@@ -468,7 +480,7 @@ namespace ARKBreedingStats.raising
                     Species species = ite.mother.Species;
                     SetGlobalSpecies?.Invoke(species);
 
-                    parentStats1.setParentValues(ite.mother, ite.father);
+                    parentStats1.SetParentValues(ite.mother, ite.father);
 
                     // edit-box
                     creatureMaturationEdit = null;
@@ -582,6 +594,11 @@ namespace ARKBreedingStats.raising
             AdjustTimers?.Invoke(offset);
             dhmsInputOffsetAllTimers.Timespan = default;
             Utils.BlinkAsync(btAdjustAllTimers, Color.LightGreen, 500, false);
+        }
+
+        private void listViewBabies_ColumnClick(object sender, ColumnClickEventArgs e)
+        {
+            ListViewColumnSorter.DoSort((ListView)sender, e.Column);
         }
 
         private void bSaveTimerEdit_Click(object sender, EventArgs e)

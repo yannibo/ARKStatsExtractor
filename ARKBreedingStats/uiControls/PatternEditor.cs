@@ -41,10 +41,9 @@ namespace ARKBreedingStats.uiControls
             Text = $"Naming Pattern Editor: pattern {(namingPatternIndex + 1)}";
 
             // collect creatures of the same species
-            var sameSpecies = (females ?? new List<Creature> { }).Concat((males ?? new List<Creature> { })).ToList();
-            var creatureNames = sameSpecies.Select(x => x.name).ToList();
+            var sameSpecies = (females ?? new List<Creature>()).Concat((males ?? new List<Creature>())).ToList();
 
-            var examples = NamePatterns.CreateTokenDictionary(creature, sameSpecies);
+            var examples = NamePatterns.CreateTokenDictionary(creature, sameSpecies, _speciesTopLevels);
 
             TableLayoutPanel tlpKeys = new TableLayoutPanel();
             tableLayoutPanel1.Controls.Add(tlpKeys);
@@ -226,18 +225,21 @@ namespace ARKBreedingStats.uiControls
                 { "fr", "Level of " + Utils.StatName((int)StatNames.TemperatureFortitude, glowSpecies: isGlowSpecies) },
                 { "cr", "Level of " + Utils.StatName((int)StatNames.CraftingSpeedMultiplier, glowSpecies: isGlowSpecies) },
 
-                { "hp_vb", "Breeding value of "+Utils.StatName((int)StatNames.Health, glowSpecies: isGlowSpecies) },
-                { "st_vb", "Breeding value of "+Utils.StatName((int)StatNames.Stamina, glowSpecies: isGlowSpecies) },
-                { "to_vb", "Breeding value of "+Utils.StatName((int)StatNames.Torpidity, glowSpecies: isGlowSpecies) },
-                { "ox_vb", "Breeding value of "+Utils.StatName((int)StatNames.Oxygen, glowSpecies: isGlowSpecies) },
-                { "fo_vb", "Breeding value of "+Utils.StatName((int)StatNames.Food, glowSpecies: isGlowSpecies) },
-                { "wa_vb", "Breeding value of "+Utils.StatName((int)StatNames.Water, glowSpecies: isGlowSpecies) },
-                { "te_vb", "Breeding value of "+Utils.StatName((int)StatNames.Temperature, glowSpecies: isGlowSpecies) },
-                { "we_vb", "Breeding value of "+Utils.StatName((int)StatNames.Weight, glowSpecies: isGlowSpecies) },
-                { "dm_vb", "Breeding value of "+Utils.StatName((int)StatNames.MeleeDamageMultiplier, glowSpecies: isGlowSpecies) },
-                { "sp_vb", "Breeding value of "+Utils.StatName((int)StatNames.SpeedMultiplier, glowSpecies: isGlowSpecies) },
-                { "fr_vb", "Breeding value of "+Utils.StatName((int)StatNames.TemperatureFortitude, glowSpecies: isGlowSpecies) },
-                { "cr_vb", "Breeding value of "+Utils.StatName((int)StatNames.CraftingSpeedMultiplier, glowSpecies: isGlowSpecies) },
+                { "hp_vb", "Breeding value of "+ Utils.StatName((int)StatNames.Health, glowSpecies: isGlowSpecies) },
+                { "st_vb", "Breeding value of "+ Utils.StatName((int)StatNames.Stamina, glowSpecies: isGlowSpecies) },
+                { "to_vb", "Breeding value of "+ Utils.StatName((int)StatNames.Torpidity, glowSpecies: isGlowSpecies) },
+                { "ox_vb", "Breeding value of "+ Utils.StatName((int)StatNames.Oxygen, glowSpecies: isGlowSpecies) },
+                { "fo_vb", "Breeding value of "+ Utils.StatName((int)StatNames.Food, glowSpecies: isGlowSpecies) },
+                { "wa_vb", "Breeding value of "+ Utils.StatName((int)StatNames.Water, glowSpecies: isGlowSpecies) },
+                { "te_vb", "Breeding value of "+ Utils.StatName((int)StatNames.Temperature, glowSpecies: isGlowSpecies) },
+                { "we_vb", "Breeding value of "+ Utils.StatName((int)StatNames.Weight, glowSpecies: isGlowSpecies) },
+                { "dm_vb", "Breeding value of "+ Utils.StatName((int)StatNames.MeleeDamageMultiplier, glowSpecies: isGlowSpecies) },
+                { "sp_vb", "Breeding value of "+ Utils.StatName((int)StatNames.SpeedMultiplier, glowSpecies: isGlowSpecies) },
+                { "fr_vb", "Breeding value of "+ Utils.StatName((int)StatNames.TemperatureFortitude, glowSpecies: isGlowSpecies) },
+                { "cr_vb", "Breeding value of "+ Utils.StatName((int)StatNames.CraftingSpeedMultiplier, glowSpecies: isGlowSpecies) },
+
+                { "isTophp", "if hp is top, it will return 1 and nothing if it's not top. Combine with the if-function. All stat name abbreviations are possible, e.g. replace hp with st, to, ox etc."},
+                { "isNewTophp", "if hp is higher than the current top hp, it will return 1 and nothing else. Combine with the if-function. All stat name abbreviations are possible."},
 
                 { "effImp_short", "Short Taming-effectiveness or Imprinting (if tamed / bred)"},
                 { "index",        "Index in library (same species)."},
@@ -253,6 +255,7 @@ namespace ARKBreedingStats.uiControls
                 { "muta", "Mutations. Numbers larger than 99 will be displayed as 99" },
                 { "gen", "Generation" },
                 { "gena", "Generation in letters (0=A, 1=B, 26=AA, 27=AB)" },
+                { "genn", "The number of creatures with the same species and the same generation plus one" },
                 { "nr_in_gen", "The number of the creature in its generation, ordered by added to the library" },
                 { "rnd", "6-digit random number in the range 100000 - 999999" },
                 { "tn", "number of creatures of the current species in the library + 1" },
@@ -275,9 +278,8 @@ namespace ARKBreedingStats.uiControls
 
         private static Dictionary<string, string> FunctionExplanations() => new Dictionary<string, string>()
         {
-            {"isTopStat", "{{#if: isTop<stat> | true | false }}, to check if a stat is a top stat in that species (i.e. highest in library).\n{{#if: isTopHP | bestHP {hp} }}" },
-            {"isNewTopStat", "{{#if: isNewTop<stat> | true | false }}, to check if a stat is a top stat in that species (i.e. higher than the ones in the library).\n{{#if: isNewTopHP | newBestHP {hp} }}" },
-            {"ifexpr", "{{#ifexpr: expression | true | false }}, to check if a numerical expression with two operands and one operator is true or false. Possible operators are ==, !=, <, <=, <, >=.\n{{#ifexpr: {topPercent} > 80 | top80 }}" },
+            {"if", "{{#if: string | if string is not empty | if string is emtpy }}, to check if a string is empty. E.g. you can check if a stat is a top stat of that species (i.e. highest in library).\n{{#if: {isTophp} | bestHP{hp} | notTopHP }}" },
+            {"ifexpr", "{{#ifexpr: expression | true | false }}, to check if an expression with two operands and one operator is true or false. Possible operators are ==, !=, <, <=, <, >=.\n{{#ifexpr: {topPercent} > 80 | true | false }}" },
             {"substring","{{#substring: text | start | length }}. Length can be ommited. If start is negative it takes the characters from the end.\n{{#substring: {species} | 0 | 4 }}"},
             {"replace","{{#replace: text | find | replaceBy }}\n{{#replace: {species} | Abberant | Ab }}"},
             {"customreplace","{{#customreplace: text }}. Replaces the text with a value saved in the file customReplacings.json.\nIf a second parameter is given, that is returned if the key is not available.\n{{#customreplace: {species} }}"},
@@ -288,6 +290,8 @@ namespace ARKBreedingStats.uiControls
             {"casing","{{#casing: text | casingtype (U, L, T) }}. U for UPPER, L for lower, T for Title.\n{{#casing: {species} | U }}"},
             {"time","{{#time: formatString }}\n{{#time: yyyy-MM-dd_HH:mm }}"},
             {"format","{{#format: number | formatString }}\n{{#format: {hp_vb} | 000000 }}"},
+            {"color","{{#color: regionId | colorName }}. Returns the colorId of the region. If the second parameter is not empty, the color name will be returned.\n{{#color: 0 | true }}"},
+            {"indexof","{{#indexof: source string | string to find }}. Returns the index of the second parameter in the first parameter. If the string is not contained, an empty string will be returned.\n{{#indexof: hello | ll }}"},
         };
 
         private void btnClear_Click(object sender, EventArgs e)

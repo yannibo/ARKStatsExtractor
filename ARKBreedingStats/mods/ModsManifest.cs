@@ -1,41 +1,32 @@
-﻿using ARKBreedingStats.values;
-using System;
+﻿using Newtonsoft.Json;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Runtime.Serialization;
-using System.Runtime.Serialization.Json;
 using System.Threading.Tasks;
-using System.Windows.Forms;
 
 namespace ARKBreedingStats.mods
 {
     /// <summary>
     /// Contains info about available mod files and their version.
     /// </summary>
-    [DataContract]
+    [JsonObject(MemberSerialization.OptIn)]
     public class ModsManifest
     {
         /// <summary>
-        /// Must be present and a supported value. Defaults to an invalid value
-        /// </summary>
-        [DataMember]
-        private string format = string.Empty;
-        /// <summary>
         /// Dictionary of ModInfos. The key is the mod-filename.
         /// </summary>
-        [DataMember(Name = "files")]
+        [JsonProperty("files")]
         public Dictionary<string, ModInfo> modsByFiles;
 
         /// <summary>
         /// Dictionary of ModInfos. The key is the modTag.
         /// </summary>
-        [IgnoreDataMember]
         public Dictionary<string, ModInfo> modsByTag;
 
         /// <summary>
         /// Dictionary of ModInfos. The key is the modID.
         /// </summary>
-        [IgnoreDataMember]
         public Dictionary<string, ModInfo> modsByID;
 
         public ModsManifest()
@@ -53,51 +44,45 @@ namespace ARKBreedingStats.mods
         /// <returns></returns>
         public static async Task<ModsManifest> TryLoadModManifestFile(bool forceDownload = false, int downloadTry = 0)
         {
-            string modsManifestPath = Path.Combine(FileService.ValuesFolder, FileService.ModsManifest);
-            if (forceDownload || !File.Exists(FileService.GetJsonPath(modsManifestPath)))
-                await TryDownloadFileAsync();
-
-            try
+            while (true)
             {
-                using (FileStream file = FileService.GetJsonFileStream(modsManifestPath))
-                {
-                    DataContractJsonSerializer ser = new DataContractJsonSerializer(typeof(ModsManifest)
-                        , new DataContractJsonSerializerSettings()
-                        {
-                            UseSimpleDictionaryFormat = true
-                        }
-                        );
-                    var tmpV = (ModsManifest)ser.ReadObject(file);
-                    if (tmpV.format != Values.CURRENT_FORMAT_VERSION) throw new FormatException("Unhandled format version");
+                string modsManifestPath = Path.Combine(FileService.ValuesFolder, FileService.ModsManifest);
+                if (forceDownload || !File.Exists(FileService.GetJsonPath(modsManifestPath))) await TryDownloadFileAsync();
 
-                    tmpV.Initialize();
+                if (FileService.LoadJSONFile(FileService.GetJsonPath(modsManifestPath), out ModsManifest tmpV, out string errorMessage))
+                {
                     return tmpV;
                 }
-            }
-            catch (SerializationException e)
-            {
-                if (downloadTry == 0)
+
+                if (!forceDownload && downloadTry == 0)
                 {
-                    // file is probably corrupted, try to redownload
-                    return await TryLoadModManifestFile(forceDownload: true, downloadTry: 1);
+                    // file is probably corrupted, try to redownload it
+                    forceDownload = true;
+                    downloadTry = 1;
+                    continue;
                 }
-                // redownload didn't solve the issue
-                throw e;
+
+                throw new SerializationException(errorMessage);
             }
         }
 
-        private void Initialize()
+        /// <summary>
+        /// Users can create an additional custom manifest file for manually created mod files. If available, it's loaded with this method.
+        /// </summary>
+        /// <returns></returns>
+        public static bool TryLoadCustomModManifestFile(out ModsManifest customModsManifest)
         {
-            string valuesPath = FileService.GetJsonPath(FileService.ValuesFolder);
-            foreach (KeyValuePair<string, ModInfo> mi in modsByFiles)
+            customModsManifest = null;
+            string filePath = FileService.GetJsonPath(FileService.ValuesFolder, FileService.ModsManifestCustom);
+            if (!File.Exists(filePath)) return false;
+
+            if (FileService.LoadJSONFile(filePath, out ModsManifest tmpV, out string errorMessage))
             {
-                if (mi.Value.mod != null)
-                {
-                    mi.Value.mod.FileName = mi.Key;
-                    mi.Value.onlineAvailable = true;
-                    mi.Value.downloaded = mi.Value.mod.FileName != null && File.Exists(Path.Combine(valuesPath, mi.Value.mod.FileName));
-                }
+                customModsManifest = tmpV;
+                return true;
             }
+
+            throw new SerializationException(errorMessage);
         }
 
         /// <summary>
@@ -109,20 +94,30 @@ namespace ARKBreedingStats.mods
             return await Updater.DownloadModsManifest();
         }
 
-        [OnDeserialized]
-        private void SetModDictionaries(StreamingContext c)
+        /// <summary>
+        /// The manifest file only contains a dictionary by fileName. This method initializes the other properties.
+        /// </summary>
+        internal void Initialize()
         {
             modsByTag = new Dictionary<string, ModInfo>();
             modsByID = new Dictionary<string, ModInfo>();
 
+            string valuesPath = FileService.GetJsonPath(FileService.ValuesFolder);
+
             foreach (KeyValuePair<string, ModInfo> fmi in modsByFiles)
             {
-                if (!string.IsNullOrEmpty(fmi.Value.mod?.tag)
+                if (fmi.Value.mod == null) continue;
+
+                fmi.Value.mod.FileName = fmi.Key;
+                fmi.Value.locallyAvailable = !string.IsNullOrEmpty(fmi.Value.mod.FileName) && File.Exists(Path.Combine(valuesPath, fmi.Value.mod.FileName));
+
+                if (!string.IsNullOrEmpty(fmi.Value.mod.tag)
                     && !modsByTag.ContainsKey(fmi.Value.mod.tag))
                 {
                     modsByTag.Add(fmi.Value.mod.tag, fmi.Value);
                 }
-                if (!string.IsNullOrEmpty(fmi.Value.mod?.id)
+
+                if (!string.IsNullOrEmpty(fmi.Value.mod.id)
                     && !modsByID.ContainsKey(fmi.Value.mod.id))
                 {
                     modsByID.Add(fmi.Value.mod.id, fmi.Value);
@@ -143,11 +138,24 @@ namespace ARKBreedingStats.mods
                 if (Updater.DownloadModValuesFile(mf)
                     && modsByFiles.ContainsKey(mf))
                 {
-                    modsByFiles[mf].downloaded = true;
+                    modsByFiles[mf].locallyAvailable = true;
                     filesDownloaded = true;
                 }
             }
             return filesDownloaded;
         }
+
+        /// <summary>
+        /// Merges two mod manifests (while for duplicate entries the manifest2 item will be kept) and returns the combined one. This is used to combine the official manifest with the custom created manifest.
+        /// </summary>
+        /// <param name="manifest1"></param>
+        /// <param name="manifest2"></param>
+        /// <returns></returns>
+        internal static ModsManifest MergeModsManifest(ModsManifest manifest1, ModsManifest manifest2)
+        => new ModsManifest()
+        {
+            modsByFiles = manifest2.modsByFiles.Concat(manifest1.modsByFiles.Where(m1 => !manifest2.modsByFiles.ContainsKey(m1.Key))).ToDictionary(m => m.Key, m => m.Value)
+        };
+
     }
 }

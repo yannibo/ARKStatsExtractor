@@ -7,10 +7,11 @@ using System.IO.Compression;
 using System.Linq;
 using System.Net;
 using System.Threading.Tasks;
+using System.Windows;
 
 namespace ASB_Updater
 {
-    public class ASBUpdater : IUpdater
+    public class ASBUpdater
     {
 
         // Update stages to go through (determines progress bar display %)
@@ -29,16 +30,16 @@ namespace ASB_Updater
         private readonly string[] stageMessages = {
             "Fetching release list…",
             "Checking for updates…",
-            "Checking for updates…",
+            "Checking the versions…",
             "Downloading updates…",
             "Extracting files…",
             "Cleaning up…",
-            "Done!"
+            "Update Done!"
         };
         private readonly string[] stageErrors = {
             "Download of release list failed",
             "Failed to read realease list",
-            "Failed to read realease list",
+            "Failed checking the version number",
             "Download of updates failed",
             "File extraction failed",
             "Could not complete cleanup",
@@ -46,30 +47,32 @@ namespace ASB_Updater
         };
 
         // Release feed URL
-        private readonly string releasesURL = "https://api.github.com/repos/cadon/ARKStatsExtractor/releases";
+        private const string ReleasesUrl = "https://api.github.com/repos/cadon/ARKStatsExtractor/releases";
         // Temporary download file name
-        private const string tempZipName = "ASB_Update.temp.zip";
-        private readonly string tempZipNamePath;
+        private const string TempZipName = "ASB_Update.temp.zip";
+        private readonly string _tempZipNamePath;
         // Temporary release feed file name
-        private const string tempReleases = "ASB_Releases.temp.json";
-        private readonly string tempReleasesPath;
+        private const string TempReleases = "ASB_Releases.temp.json";
+        private readonly string _tempReleasesPath;
 
         /// <summary>
         /// Temporary path for the update related files.
         /// </summary>
         private readonly string tempFolder;
 
-        private string downloadURL { get; set; }
-        private string latestVersion { get; set; }
-        private string date { get; set; }
+        private string _downloadUrl;
+        private string _latestVersion;
+        private string _date;
 
         public Stages Stage { get; internal set; }
 
         public ASBUpdater()
         {
             tempFolder = GetTemporaryDirectory();
-            tempZipNamePath = Path.Combine(tempFolder, tempZipName);
-            tempReleasesPath = Path.Combine(tempFolder, tempReleases);
+            _tempZipNamePath = Path.Combine(tempFolder, TempZipName);
+            _tempReleasesPath = Path.Combine(tempFolder, TempReleases);
+            // set TLS-protocol (github needs at least TLS 1.2) for update-check
+            System.Net.ServicePointManager.SecurityProtocol = System.Net.SecurityProtocolType.Tls12;
         }
 
         /// <summary>
@@ -81,7 +84,22 @@ namespace ASB_Updater
             int max = Enum.GetNames(typeof(Stages)).Length;
             int current = (int)Stage;
 
-            return (current / max) * 100;
+            return (current * 100 / max);
+        }
+
+        /// <summary>
+        /// Calculates the progress made in updating
+        /// </summary>
+        /// <returns></returns>
+        public string GetProgressState()
+        {
+            return stageMessages[(int)Stage];
+        }
+
+        private void SetStatus(Stages stage, IProgress<ProgressReporter> progress)
+        {
+            Stage = stage;
+            progress.Report(new ProgressReporter(GetProgress(), GetProgressState()));
         }
 
         /// <summary>
@@ -99,10 +117,10 @@ namespace ASB_Updater
         /// </summary>
         /// 
         /// <returns>Success or Fail</returns>
-        public bool Fetch()
+        public async Task<bool> Fetch(IProgress<ProgressReporter> progress)
         {
-            Stage = Stages.FETCH;
-            return DownloadFile(releasesURL, tempReleasesPath);
+            SetStatus(Stages.FETCH, progress);
+            return await DownloadFile(ReleasesUrl, _tempReleasesPath, progress);
         }
 
         /// <summary>
@@ -110,29 +128,27 @@ namespace ASB_Updater
         /// </summary>
         /// 
         /// <returns>Success or Fail</returns>
-        public bool Parse()
+        public bool Parse(IProgress<ProgressReporter> progress)
         {
-            Stage = Stages.PARSE;
+            SetStatus(Stages.PARSE, progress);
 
             try
             {
-                string json = File.ReadAllText(tempReleasesPath);
+                string json = File.ReadAllText(_tempReleasesPath);
                 dynamic stuff = JArray.Parse(json);
                 dynamic latest = stuff[0];
                 dynamic assets = latest.assets[0];
 
-                downloadURL = assets.browser_download_url;
-                // get latest version number
-                var match = System.Text.RegularExpressions.Regex.Match(downloadURL, @"([\d\.]+)\.zip");
-                latestVersion = match.Success ? match.Groups[1].Value : string.Empty;
-                date = latest.published_at;
+                _downloadUrl = assets.browser_download_url;
 
-                Debug.WriteLine("Download URL: " + downloadURL);
-                Debug.WriteLine("Date: " + date);
+                // get latest version number
+                var match = System.Text.RegularExpressions.Regex.Match(_downloadUrl, @"([\d\.]+)\.zip");
+                _latestVersion = match.Success ? match.Groups[1].Value : string.Empty;
+                _date = latest.published_at;
             }
             catch (Exception e)
             {
-                Debug.Write(e.StackTrace.ToString());
+                progress.Report(new ProgressReporter($"Error while parsing download uri: {e.Message}", ProgressReporter.State.Error));
                 return false;
             }
 
@@ -143,9 +159,9 @@ namespace ASB_Updater
         /// Checks if the parsed info indicates that a newer version is available
         /// </summary>
         /// <returns>Newer version available for download</returns>
-        public bool Check(string applicationPath)
+        public bool Check(string applicationPath, IProgress<ProgressReporter> progress)
         {
-            Stage = Stages.CHECK;
+            SetStatus(Stages.CHECK, progress);
             if (string.IsNullOrEmpty(applicationPath)
                 || !Directory.Exists(applicationPath))
                 return false;
@@ -158,17 +174,16 @@ namespace ASB_Updater
 
                 string installedVersion = FileVersionInfo.GetVersionInfo(exePath).FileVersion;
 
-                Debug.WriteLine($"installed version: {installedVersion}");
-                Debug.WriteLine($"available version: {latestVersion}");
+                progress.Report(new ProgressReporter(message: $"installed version: {installedVersion}\navailable version: {_latestVersion}, released at {_date}"));
 
                 return Version.TryParse(installedVersion, out Version installedVer)
-                    && Version.TryParse(latestVersion, out Version latestVer)
+                    && Version.TryParse(_latestVersion, out Version latestVer)
                     && installedVer > new Version(0, 0)
                     && installedVer < latestVer;
             }
             catch (Exception e)
             {
-                Debug.Write("Exception while checking versions. " + e.Message);
+                progress.Report(new ProgressReporter(message: "Exception while checking versions. " + e.Message, state: ProgressReporter.State.Error));
             }
 
             return false;
@@ -179,10 +194,10 @@ namespace ASB_Updater
         /// </summary>
         /// 
         /// <returns>Success or Fail</returns>
-        public bool Download()
+        public async Task<bool> Download(IProgress<ProgressReporter> progress)
         {
-            Stage = Stages.DOWNLOAD;
-            return DownloadFile(downloadURL, tempZipNamePath);
+            SetStatus(Stages.DOWNLOAD, progress);
+            return await DownloadFile(_downloadUrl, _tempZipNamePath, progress);
         }
 
         /// <summary>
@@ -190,23 +205,50 @@ namespace ASB_Updater
         /// </summary>
         /// 
         /// <returns>Success or Fail</returns>
-        public bool Extract(string applicationPath, bool useLocalAppDataForDataFiles)
+        public bool Extract(string applicationPath, bool useLocalAppDataForDataFiles,
+            IProgress<ProgressReporter> progress)
         {
-            Stage = Stages.EXTRACT;
+            SetStatus(Stages.EXTRACT, progress);
             string extractedAppTempPath = Path.Combine(tempFolder, "ASB");
-            Directory.CreateDirectory(extractedAppTempPath);
-            ZipFile.ExtractToDirectory(tempZipNamePath, extractedAppTempPath);
+
+            // assume that if the directory already exists, the files were already extracted to there
+            if (!Directory.Exists(extractedAppTempPath))
+            {
+                Directory.CreateDirectory(extractedAppTempPath);
+                try
+                {
+                    ZipFile.ExtractToDirectory(_tempZipNamePath, extractedAppTempPath);
+                }
+                catch (Exception ex)
+                {
+                    progress.Report(new ProgressReporter(
+                        message: $"Error while extracting the files to {extractedAppTempPath}: {ex.Message}",
+                        state: ProgressReporter.State.Error));
+                    return false;
+                }
+                progress.Report(new ProgressReporter(message: $"Extracted files to {extractedAppTempPath}"));
+            }
+
+
+            bool resultCopyFiles;
             if (useLocalAppDataForDataFiles)
             {
-                CopyEntireDirectory(new DirectoryInfo(extractedAppTempPath), new DirectoryInfo(applicationPath), overwriteFiles: true, ignoreSubFolder: "json");
-                CopyEntireDirectory(new DirectoryInfo(Path.Combine(extractedAppTempPath, "json")), new DirectoryInfo(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "ARK Smart Breeding", "json")), overwriteFiles: true);
+                resultCopyFiles = CopyEntireDirectory(new DirectoryInfo(extractedAppTempPath), new DirectoryInfo(applicationPath),
+                    overwriteFiles: true, ignoreSubFolder: "json", progress);
+
+                resultCopyFiles = CopyEntireDirectory(new DirectoryInfo(Path.Combine(extractedAppTempPath, "json")),
+                    new DirectoryInfo(Path.Combine(
+                        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                        "ARK Smart Breeding", "json")), overwriteFiles: true, progress: progress)
+                    && resultCopyFiles;
             }
             else
             {
-                CopyEntireDirectory(new DirectoryInfo(extractedAppTempPath), new DirectoryInfo(applicationPath), overwriteFiles: true);
+                resultCopyFiles = CopyEntireDirectory(new DirectoryInfo(extractedAppTempPath), new DirectoryInfo(applicationPath),
+                    overwriteFiles: true, progress: progress);
             }
 
-            return true;
+            return resultCopyFiles;
         }
 
         /// <summary>
@@ -214,9 +256,9 @@ namespace ASB_Updater
         /// </summary>
         /// 
         /// <returns>Success or Fail</returns>
-        public bool Cleanup()
+        public bool Cleanup(IProgress<ProgressReporter> progress)
         {
-            Stage = Stages.CLEANUP;
+            SetStatus(Stages.CLEANUP, progress);
             bool result = true;
             try
             {
@@ -229,7 +271,7 @@ namespace ASB_Updater
 
             if (result)
             {
-                Stage = Stages.COMPLETE;
+                SetStatus(Stages.COMPLETE, progress);
             }
             return result;
         }
@@ -240,9 +282,9 @@ namespace ASB_Updater
         /// 
         /// <param name="url">The URL to download from</param>
         /// <param name="outName">File to output contents to</param>
-        /// 
+        /// <param name="progress"></param>
         /// <returns>Success or Fail</returns>
-        private bool DownloadFile(string url, string outName)
+        private async Task<bool> DownloadFile(string url, string outName, IProgress<ProgressReporter> progress)
         {
             using (var client = new WebClient())
             {
@@ -250,34 +292,77 @@ namespace ASB_Updater
 
                 if (url == null)
                 {
-                    Debug.WriteLine("Fetch? " + Fetch());
-                    Debug.WriteLine("Parse? " + Parse());
+                    if (!await Fetch(progress) || !Parse(progress))
+                        return false;
 
-                    url = downloadURL;
+                    url = _downloadUrl;
+                    if (url == null)
+                    {
+                        progress.Report(new ProgressReporter("url for downloading is null due to error while parsing.", ProgressReporter.State.Error));
+                        return false;
+                    }
                 }
 
-                Debug.WriteLine("URL: " + url);
-                Debug.WriteLine("Out File: " + outName);
+                progress.Report(new ProgressReporter(message: $"downloading {url} to {outName}"));
 
-                client.DownloadFile(url, outName);
+                try
+                {
+                    await client.DownloadFileTaskAsync(url, outName);
+                }
+                catch (WebException ex)
+                {
+                    progress.Report(new ProgressReporter($"There was an error while trying to download the file {url}: {ex.Message}", ProgressReporter.State.Error));
+                    return false;
+                }
+                catch (InvalidOperationException ex)
+                {
+                    progress.Report(new ProgressReporter($"There was an error while trying to save the file from {url} to {outName}: {ex.Message}", ProgressReporter.State.Error));
+                    return false;
+                }
             }
 
             return File.Exists(outName);
         }
 
-        public static void CopyEntireDirectory(DirectoryInfo source, DirectoryInfo target, bool overwriteFiles = true, string ignoreSubFolder = null)
+        public static bool CopyEntireDirectory(DirectoryInfo source, DirectoryInfo target, bool overwriteFiles = true, string ignoreSubFolder = null, IProgress<ProgressReporter> progress = null)
         {
-            if (!source.Exists) return;
+            if (!source.Exists)
+            {
+                progress?.Report(new ProgressReporter(
+                    message: $"The path {source.FullName} does not exist, cannot copy files from there",
+                    state: ProgressReporter.State.Error));
+                return false;
+            }
             if (!target.Exists) target.Create();
 
-            Parallel.ForEach(string.IsNullOrEmpty(ignoreSubFolder) ? source.GetDirectories() : source.GetDirectories().Where(d => d.Name != ignoreSubFolder),
-                (sourceChildDirectory) =>
-                CopyEntireDirectory(sourceChildDirectory, new DirectoryInfo(Path.Combine(target.FullName, sourceChildDirectory.Name)), overwriteFiles));
-
-            Parallel.ForEach(source.GetFiles(), sourceFile =>
+            try
             {
-                sourceFile.CopyTo(Path.Combine(target.FullName, sourceFile.Name), overwriteFiles);
-            });
+                Parallel.ForEach(
+                    string.IsNullOrEmpty(ignoreSubFolder)
+                        ? source.GetDirectories()
+                        : source.GetDirectories().Where(d => d.Name != ignoreSubFolder),
+                    (sourceChildDirectory) =>
+                    {
+                        CopyEntireDirectory(sourceChildDirectory,
+                            new DirectoryInfo(Path.Combine(target.FullName, sourceChildDirectory.Name)),
+                            overwriteFiles, progress: progress);
+                    });
+
+                Parallel.ForEach(source.GetFiles(),
+                    sourceFile =>
+                    {
+                        sourceFile.CopyTo(Path.Combine(target.FullName, sourceFile.Name), overwriteFiles);
+                    });
+            }
+            catch (AggregateException exs)
+            {
+                progress?.Report(new ProgressReporter(
+                    message: $"Error while copying files from {source.FullName} to {target.FullName}:\n{string.Join("\n", exs.Flatten().InnerExceptions.Select(ex => ex.Message))}",
+                    state: ProgressReporter.State.Error));
+                return false;
+            }
+
+            return true;
         }
 
         public static string GetTemporaryDirectory()
